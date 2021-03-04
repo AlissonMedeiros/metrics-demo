@@ -1,0 +1,76 @@
+version: '3.8'
+
+volumes:
+  prometheus_data: {}
+  grafana_data: {}
+
+services:
+  db:
+    image: mysql:5.7
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: test123
+      MYSQL_PASSWORD: test123
+      MYSQL_DATABASE: dados
+      MYSQL_USER: user
+    ports:
+      - 3306:3306
+
+  flyway:
+    image: flyway/flyway
+    command: -url=jdbc:mysql://db -schemas=dados -user=root -password=test123 -connectRetries=60 migrate
+    volumes:
+      - ./db/migration:/flyway/sql
+    depends_on:
+      - db
+  app:
+      image: quarkus/metrics-demo-jvm
+      ports:
+        - 8080:8080
+      environment:
+        MYSQL_URL: jdbc:mysql://db:3306/dados
+        MYSQL_USER: user
+        MYSQL_PASSWORD: test123
+  adminer:
+    image: adminer:4.7.9
+    restart: always
+    ports:
+      - 8111:8080
+  prometheus:
+    image: prom/prometheus:v2.25.0
+    container_name: prometheus
+    volumes:
+      - ./prometheus/:/etc/prometheus
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    restart: unless-stopped
+    labels:
+      org.label-schema.group: "monitoring"
+    ports:
+      - 9090:9090
+    expose:
+      - 9090
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/provisioning/datasources/linux:/etc/grafana/provisioning/datasources
+    environment:
+      - GF_SECURITY_ADMIN_USER=${ADMIN_USER:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin}
+      - GF_USERS_ALLOW_SIGN_UP=false
+    restart: unless-stopped
+    labels:
+      org.label-schema.group: "monitoring"
+    expose:
+      - 3000
+    ports:
+      - 3000:3000
